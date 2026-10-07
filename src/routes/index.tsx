@@ -567,7 +567,7 @@ function Landing() {
 
       <main className="relative">
         {/* HERO SECTION */}
-        <section id="home" className="relative overflow-hidden pb-16 pt-12 sm:pb-24 sm:pt-16">
+        <section id="home" className="relative overflow-hidden pb-12 pt-4 sm:pb-16 sm:pt-6">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-[480px] grid-backdrop opacity-70 [mask-image:radial-gradient(75%_60%_at_50%_0%,black,transparent)]"
             aria-hidden="true"
