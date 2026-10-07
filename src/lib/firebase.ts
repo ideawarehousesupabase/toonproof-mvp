@@ -1,9 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
-  getAuth,
-  type Auth,
-} from "firebase/auth";
-import {
   getFirestore,
   type Firestore,
 } from "firebase/firestore";
@@ -20,7 +16,6 @@ const firebaseConfig = {
 };
 
 let app: FirebaseApp | null = null;
-let auth: Auth | null = null;
 let db: Firestore | null = null;
 
 export const isFirebaseConfigured = Boolean(
@@ -31,12 +26,11 @@ try {
   if (typeof window !== "undefined") {
     app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
     if (isFirebaseConfigured) {
-      auth = getAuth(app);
       db = getFirestore(app);
     }
   }
 } catch (error) {
-  console.warn("Firebase initialization notice:", error);
+  console.warn("Firebase Firestore initialization notice:", error);
 }
 
-export { app, auth, db };
+export { app, db };

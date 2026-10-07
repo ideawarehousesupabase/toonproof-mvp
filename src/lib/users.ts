@@ -1,15 +1,14 @@
 import { useEffect, useState } from "react";
 import type { CreatorType, User } from "./types";
-import { isFirebaseConfigured, auth, db } from "./firebase";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signOut,
-} from "firebase/auth";
+import { isFirebaseConfigured, db } from "./firebase";
 import {
   doc,
   setDoc,
   getDoc,
+  getDocs,
+  collection,
+  query,
+  where,
   deleteDoc,
 } from "firebase/firestore";
 
@@ -21,16 +20,18 @@ const AUTH_EVENT = "toonproof-auth-change";
 
 export type Session = User;
 
-function readLocalUsers(): User[] {
+type StoredUser = User & { password?: string };
+
+function readLocalUsers(): StoredUser[] {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(window.localStorage.getItem(USERS_KEY) ?? "[]") as User[];
+    return JSON.parse(window.localStorage.getItem(USERS_KEY) ?? "[]") as StoredUser[];
   } catch {
     return [];
   }
 }
 
-function writeLocalUsers(users: User[]) {
+function writeLocalUsers(users: StoredUser[]) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
@@ -57,6 +58,9 @@ export function clearSession() {
   window.dispatchEvent(new Event(AUTH_EVENT));
 }
 
+/**
+ * Create user account using pure Firestore CRUD operations + local resilient cache.
+ */
 export async function createUser(input: {
   fullName: string;
   email: string;
@@ -67,41 +71,58 @@ export async function createUser(input: {
   const fullName = input.fullName.trim();
   const now = new Date().toISOString();
 
-  // 1. Try Firebase Auth if configured
-  if (isFirebaseConfigured && auth && db && input.password) {
+  // 1. If Firebase Firestore is configured, perform CRUD against "users" collection
+  if (isFirebaseConfigured && db) {
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, input.password);
-      const user: User = {
-        id: userCred.user.uid,
+      // Check if email already exists in Firestore
+      const q = query(collection(db, "users"), where("email", "==", email));
+      const existingSnap = await getDocs(q);
+      if (!existingSnap.empty) {
+        return { ok: false, error: "An account with this email already exists." };
+      }
+
+      const userId = "usr_" + Math.random().toString(36).slice(2, 11);
+      const userDoc: StoredUser = {
+        id: userId,
+        fullName,
+        email,
+        password: input.password,
+        creatorType: input.creatorType,
+        createdAt: now,
+      };
+
+      await setDoc(doc(db, "users", userId), userDoc);
+
+      const publicUser: User = {
+        id: userId,
         fullName,
         email,
         creatorType: input.creatorType,
         createdAt: now,
       };
-      await setDoc(doc(db, "users", user.id), user);
-      saveSession(user);
-      return { ok: true, user };
+
+      const localUsers = readLocalUsers();
+      writeLocalUsers([...localUsers.filter((u) => u.email !== email), userDoc]);
+      saveSession(publicUser);
+      return { ok: true, user: publicUser };
     } catch (err: any) {
-      if (err?.code === "auth/email-already-in-use") {
-        return { ok: false, error: "An account with this email already exists." };
-      }
-      if (err?.code === "auth/weak-password") {
-        return { ok: false, error: "Password should be at least 6 characters." };
-      }
-      return { ok: false, error: err?.message || "Failed to create account in Firebase." };
+      console.warn("Firestore createUser notice:", err);
+      // fallback to local below if network/permission issue
     }
   }
 
-  // 2. Local resilient user repository
+  // 2. Local fallback user repository
   const users = readLocalUsers();
   if (users.some((u) => u.email === email)) {
     return { ok: false, error: "An account with this email already exists." };
   }
 
-  const user: User = {
-    id: "usr_" + Math.random().toString(36).slice(2, 11),
+  const userId = "usr_" + Math.random().toString(36).slice(2, 11);
+  const user: StoredUser = {
+    id: userId,
     fullName,
     email,
+    password: input.password,
     creatorType: input.creatorType,
     createdAt: now,
   };
@@ -111,44 +132,50 @@ export async function createUser(input: {
   return { ok: true, user };
 }
 
+/**
+ * Sign in user by searching Firestore "users" collection + local cache.
+ */
 export async function findUserByCredentials(
   email: string,
   password?: string
 ): Promise<{ ok: true; user: User } | { ok: false; error: string }> {
   const targetEmail = email.trim().toLowerCase();
 
-  // 1. Try Firebase Auth if configured
-  if (isFirebaseConfigured && auth && db && password) {
+  // 1. If Firestore is configured, query "users" collection
+  if (isFirebaseConfigured && db) {
     try {
-      const userCred = await signInWithEmailAndPassword(auth, targetEmail, password);
-      const docSnap = await getDoc(doc(db, "users", userCred.user.uid));
-      let user: User;
-      if (docSnap.exists()) {
-        user = docSnap.data() as User;
-      } else {
-        user = {
-          id: userCred.user.uid,
-          fullName: targetEmail.split("@")[0],
-          email: targetEmail,
-          creatorType: "Animator",
-          createdAt: new Date().toISOString(),
+      const q = query(collection(db, "users"), where("email", "==", targetEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docData = snap.docs[0].data() as StoredUser;
+        if (password && docData.password && docData.password !== password) {
+          return { ok: false, error: "Invalid email or password." };
+        }
+        const publicUser: User = {
+          id: docData.id || snap.docs[0].id,
+          fullName: docData.fullName || targetEmail.split("@")[0],
+          email: docData.email,
+          creatorType: docData.creatorType || "Animator",
+          createdAt: docData.createdAt || new Date().toISOString(),
         };
-        await setDoc(doc(db, "users", user.id), user);
+
+        const localUsers = readLocalUsers();
+        writeLocalUsers([...localUsers.filter((u) => u.id !== publicUser.id), docData]);
+        saveSession(publicUser);
+        return { ok: true, user: publicUser };
       }
-      saveSession(user);
-      return { ok: true, user };
     } catch (err: any) {
-      if (err?.code === "auth/invalid-credential" || err?.code === "auth/user-not-found" || err?.code === "auth/wrong-password") {
-        return { ok: false, error: "Invalid email or password." };
-      }
-      return { ok: false, error: err?.message || "Authentication failed." };
+      console.warn("Firestore findUser notice:", err);
     }
   }
 
-  // 2. Local user repository
+  // 2. Local fallback user repository
   const users = readLocalUsers();
   const found = users.find((u) => u.email === targetEmail);
   if (!found) {
+    return { ok: false, error: "Invalid email or password." };
+  }
+  if (password && found.password && found.password !== password) {
     return { ok: false, error: "Invalid email or password." };
   }
 
@@ -173,7 +200,7 @@ export async function updateUser(
 
   if (index !== -1) {
     updated = { ...users[index], ...patch };
-    users[index] = updated;
+    users[index] = updated as StoredUser;
     writeLocalUsers(users);
   } else {
     const session = getSession();
@@ -200,27 +227,17 @@ export async function deleteUser(id: string) {
   writeLocalUsers(readLocalUsers().filter((u) => u.id !== id));
   clearSession();
 
-  if (isFirebaseConfigured && auth && db) {
+  if (isFirebaseConfigured && db) {
     try {
-      if (auth.currentUser && auth.currentUser.uid === id) {
-        await auth.currentUser.delete();
-      }
       await deleteDoc(doc(db, "users", id));
     } catch (err) {
-      console.warn("Firebase user delete notice:", err);
+      console.warn("Firestore user delete notice:", err);
     }
   }
 }
 
 export async function logoutUser() {
   clearSession();
-  if (isFirebaseConfigured && auth) {
-    try {
-      await signOut(auth);
-    } catch {
-      /* ignore */
-    }
-  }
 }
 
 export function useAuthSession() {
