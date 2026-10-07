@@ -480,16 +480,16 @@ function Landing() {
 
       {/* STICKY HEADER */}
       <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/85 backdrop-blur-md transition-all">
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-4 px-5">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-4 px-5">
           <a href="#home" className="group flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-200 transition-transform group-hover:scale-105">
-              <ShieldCheck className="size-5" />
+            <div className="flex size-8 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-200 transition-transform group-hover:scale-105">
+              <ShieldCheck className="size-4.5" />
             </div>
             <div className="flex flex-col">
-              <span className="font-display text-[1.05rem] font-bold tracking-tight text-slate-900">
+              <span className="font-display text-[1rem] font-bold tracking-tight text-slate-900">
                 ToonProof
               </span>
-              <span className="font-mono text-[0.62rem] uppercase tracking-wider text-slate-500">
+              <span className="font-mono text-[0.6rem] uppercase tracking-wider text-slate-500">
                 IP &amp; Royalty Vault
               </span>
             </div>
@@ -500,7 +500,7 @@ function Landing() {
               <a
                 key={item.id}
                 href={`#${item.id}`}
-                className="rounded-full px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+                className="rounded-full px-3 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
               >
                 {item.label}
               </a>
@@ -510,22 +510,22 @@ function Landing() {
           <div className="flex items-center gap-2.5">
             <Link
               to="/login"
-              className="inline-flex items-center justify-center rounded-lg px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900"
+              className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900"
             >
               Sign In
             </Link>
             <Link
               to="/signup"
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm shadow-indigo-200 transition-all hover:bg-indigo-700 hover:shadow-md"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm shadow-indigo-200 transition-all hover:bg-indigo-700 hover:shadow-md"
             >
               Get Started
-              <ArrowRight className="size-3.5" />
+              <ArrowRight className="size-3" />
             </Link>
             <button
               onClick={() => setMenu((v) => !v)}
               aria-expanded={menu}
               aria-label="Open menu"
-              className="grid size-9 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 lg:hidden"
+              className="grid size-8 place-items-center rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 lg:hidden"
             >
               {menu ? <X className="size-4" /> : <Menu className="size-4" />}
             </button>
@@ -534,8 +534,8 @@ function Landing() {
 
         {/* Mobile menu */}
         {menu ? (
-          <div className="border-t border-slate-200 bg-white px-5 py-4 shadow-lg lg:hidden">
-            <nav className="flex flex-col gap-1 py-2" aria-label="Mobile">
+          <div className="border-t border-slate-200 bg-white px-5 py-3 shadow-lg lg:hidden">
+            <nav className="flex flex-col gap-1 py-1" aria-label="Mobile">
               {NAV.map((item) => (
                 <a
                   key={item.id}
@@ -547,7 +547,7 @@ function Landing() {
                 </a>
               ))}
             </nav>
-            <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3">
+            <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-2">
               <Link
                 to="/login"
                 className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -567,7 +567,7 @@ function Landing() {
 
       <main className="relative">
         {/* HERO SECTION */}
-        <section id="home" className="relative overflow-hidden pb-12 pt-4 sm:pb-16 sm:pt-6">
+        <section id="home" className="relative overflow-hidden pb-10 pt-1 sm:pb-14 sm:pt-2">
           <div
             className="pointer-events-none absolute inset-x-0 top-0 h-[480px] grid-backdrop opacity-70 [mask-image:radial-gradient(75%_60%_at_50%_0%,black,transparent)]"
             aria-hidden="true"
