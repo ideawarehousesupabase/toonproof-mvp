@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell, useRequireSession } from "@/components/AppShell";
+import { AssetThumb } from "@/components/AssetThumb";
 import { Card, PageHeader, StatusBadge } from "@/components/ui-kit";
 import { FILTERS, matchesFilter, type Filter } from "@/lib/mock";
 import { getAssets, useVault } from "@/lib/vault";
@@ -106,9 +107,15 @@ function MyAssets() {
                       <Link
                         to="/assets/$assetId"
                         params={{ assetId: a.id }}
-                        className="hover:text-accent font-semibold"
+                        className="flex items-center gap-3 font-semibold hover:text-accent"
                       >
-                        {a.name}
+                        <AssetThumb
+                          src={a.thumbnail}
+                          fileName={a.fileName}
+                          mimeType={a.fileMimeType}
+                          alt={`Preview of ${a.name}`}
+                        />
+                        <span>{a.name}</span>
                       </Link>
                     </td>
                     <td className="px-5 py-3 text-muted-foreground">{a.type}</td>
@@ -142,9 +149,17 @@ function MyAssets() {
                 className="card-surface p-4"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{a.name}</p>
-                    <p className="text-sm text-muted-foreground">{a.type}</p>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <AssetThumb
+                      src={a.thumbnail}
+                      fileName={a.fileName}
+                      mimeType={a.fileMimeType}
+                      alt={`Preview of ${a.name}`}
+                    />
+                    <div className="min-w-0">
+                      <p className="font-semibold">{a.name}</p>
+                      <p className="text-sm text-muted-foreground">{a.type}</p>
+                    </div>
                   </div>
                   <StatusBadge status={a.status} />
                 </div>

@@ -43,7 +43,8 @@ export type RawAssetInput = {
   collection?: string;
   fileName?: string;
   fileSize?: string;
-  fileMimeType?: string;
+  fileMimeType?: string | undefined;
+  thumbnail?: string | undefined;
 };
 
 export type ProcessedAssetData = {

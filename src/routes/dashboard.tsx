@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { AppShell, useRequireSession } from "@/components/AppShell";
+import { AssetThumb } from "@/components/AssetThumb";
 import { Card, PageHeader, StatusBadge } from "@/components/ui-kit";
 import { getAssets, getStats, useVault } from "@/lib/vault";
 import { PlusCircle, Shield, Sparkles } from "lucide-react";
@@ -101,9 +102,17 @@ function Dashboard() {
               params={{ assetId: a.id }}
               className="card-surface flex flex-col gap-2 p-4 transition-colors hover:bg-secondary sm:flex-row sm:items-center sm:justify-between"
             >
-              <div>
-                <p className="font-semibold">{a.name}</p>
-                <p className="text-sm text-muted-foreground">{a.type}</p>
+              <div className="flex min-w-0 items-center gap-3">
+                <AssetThumb
+                  src={a.thumbnail}
+                  fileName={a.fileName}
+                  mimeType={a.fileMimeType}
+                  alt={`Preview of ${a.name}`}
+                />
+                <div className="min-w-0">
+                  <p className="font-semibold">{a.name}</p>
+                  <p className="text-sm text-muted-foreground">{a.type}</p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <StatusBadge status={a.status} />

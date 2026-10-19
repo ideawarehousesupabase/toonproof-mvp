@@ -1,9 +1,11 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, UploadCloud, ArrowRight, ShieldCheck } from "lucide-react";
 import { AppShell, useRequireSession } from "@/components/AppShell";
+import { AssetThumb } from "@/components/AssetThumb";
 import { Alert, Card, Field, PageHeader, StatusBadge } from "@/components/ui-kit";
 import { ASSET_TYPES } from "@/lib/mock";
+import { createThumbnail } from "@/lib/thumbnail";
 import { registerAsset } from "@/lib/vault";
 
 export const Route = createFileRoute("/assets/new")({
@@ -46,24 +48,39 @@ function RegisterAsset() {
   const [description, setDescription] = useState("");
   const [collection, setCollection] = useState("");
   const [file, setFile] = useState<{ name: string; size: string; type?: string } | null>(null);
+  const [thumbnail, setThumbnail] = useState<string | undefined>(undefined);
+  const [generatingPreview, setGeneratingPreview] = useState(false);
+  const pickToken = useRef(0);
   const [error, setError] = useState("");
   const [stage, setStage] = useState<"form" | "processing" | "done">("form");
   const [progress, setProgress] = useState(0);
   const [createdAssetId, setCreatedAssetId] = useState<string>("");
   const [createdDate, setCreatedDate] = useState<string>("");
 
-  function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function pickFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
+    // Reset so re-selecting the same file still fires onChange
+    e.target.value = "";
     if (!f) return;
     setFile({
       name: f.name,
       size: (f.size / 1024).toFixed(0) + " KB",
       type: f.type || "application/octet-stream",
     });
+
+    // Guard against an older selection resolving after a newer one
+    const token = ++pickToken.current;
+    setThumbnail(undefined);
+    setGeneratingPreview(true);
+    const thumb = await createThumbnail(f);
+    if (token !== pickToken.current) return;
+    setThumbnail(thumb);
+    setGeneratingPreview(false);
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (generatingPreview) return;
     setError("");
 
     if (!session) {
@@ -94,6 +111,7 @@ function RegisterAsset() {
         fileName: file.name,
         fileSize: file.size,
         fileMimeType: file.type,
+        thumbnail,
       });
 
       setTimeout(() => {
@@ -153,6 +171,15 @@ function RegisterAsset() {
             <ShieldCheck className="size-4" />
             <span>Cryptographic and perceptual DNA records committed to vault.</span>
           </div>
+
+          <AssetThumb
+            src={thumbnail}
+            fileName={file?.name}
+            mimeType={file?.type}
+            alt={`Preview of ${name.trim()}`}
+            size="lg"
+            className="mb-4"
+          />
 
           <div className="space-y-3 text-sm">
             <Row label="Asset Name" value={name.trim()} />
@@ -248,18 +275,34 @@ function RegisterAsset() {
             </label>
 
             {file ? (
-              <div className="mt-3 flex items-center justify-between rounded-lg bg-success/10 px-3.5 py-2 text-xs">
-                <div>
-                  <p className="font-bold text-foreground">{file.name}</p>
-                  <p className="text-muted-foreground">{file.size}</p>
+              <div className="mt-3 overflow-hidden rounded-lg border border-border">
+                {generatingPreview ? (
+                  <div className="flex h-56 w-full items-center justify-center bg-secondary/40 text-xs text-muted-foreground">
+                    Generating preview...
+                  </div>
+                ) : (
+                  <AssetThumb
+                    src={thumbnail}
+                    fileName={file.name}
+                    mimeType={file.type}
+                    alt={`Preview of ${file.name}`}
+                    size="lg"
+                    className="rounded-none border-0"
+                  />
+                )}
+                <div className="flex items-center justify-between gap-3 bg-success/10 px-3.5 py-2 text-xs">
+                  <div className="min-w-0">
+                    <p className="truncate font-bold text-foreground">{file.name}</p>
+                    <p className="text-muted-foreground">{file.size}</p>
+                  </div>
+                  <span className="shrink-0 font-semibold text-success">Ready for Hashing</span>
                 </div>
-                <span className="font-semibold text-success">Ready for Hashing</span>
               </div>
             ) : null}
           </div>
 
           <div className="flex flex-wrap gap-2.5 pt-3">
-            <button type="submit" className="btn-base btn-primary">
+            <button type="submit" className="btn-base btn-primary" disabled={generatingPreview}>
               Register &amp; Protect Asset
             </button>
             <Link to="/assets" className="btn-base btn-outline">

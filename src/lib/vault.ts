@@ -105,6 +105,8 @@ export async function registerAsset(
     fileName: rawInput.fileName,
     fileSize: rawInput.fileSize,
     fileMimeType: rawInput.fileMimeType,
+    // Only set when present — Firestore rejects undefined field values
+    ...(rawInput.thumbnail ? { thumbnail: rawInput.thumbnail } : {}),
     dna: processed.dna,
   };
 

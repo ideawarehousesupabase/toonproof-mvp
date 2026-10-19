@@ -1,6 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { AppShell, useRequireSession } from "@/components/AppShell";
+import { AssetThumb } from "@/components/AssetThumb";
 import { Alert, Card, DetailRow, Field, PageHeader, StatusBadge, Toggle } from "@/components/ui-kit";
 import {
   addShare,
@@ -140,6 +141,14 @@ function Overview({ asset, creator }: { asset: Asset; creator: string }) {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <h2 className="mb-2 text-base font-bold">Asset Information</h2>
+        <AssetThumb
+          src={asset.thumbnail}
+          fileName={asset.fileName}
+          mimeType={asset.fileMimeType}
+          alt={`Preview of ${asset.name}`}
+          size="lg"
+          className="mb-3"
+        />
         <DetailRow label="Asset Name" value={asset.name} />
         <DetailRow label="Asset Type" value={asset.type} />
         <DetailRow label="Registration ID" value={<span className="font-mono">{asset.id}</span>} />

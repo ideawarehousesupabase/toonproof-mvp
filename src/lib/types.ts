@@ -80,6 +80,8 @@ export type Asset = {
   fileName?: string;
   fileSize?: string;
   fileMimeType?: string;
+  /** Small JPEG data URL preview (images & videos only) */
+  thumbnail?: string;
   dna: AssetDNA;
 };
 
