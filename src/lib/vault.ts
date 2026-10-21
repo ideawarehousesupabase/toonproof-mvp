@@ -15,6 +15,7 @@ import {
   setDoc,
   getDoc,
   getDocs,
+  getCountFromServer,
   query,
   where,
   deleteDoc,
@@ -83,14 +84,61 @@ export function findAsset(assetId: string, userId?: string): Asset | undefined {
 }
 
 /**
+ * Generate a globally unique sequential asset ID.
+ * Counts ALL assets across every user (local + Firestore) so IDs never collide
+ * between different accounts. Performs a Firestore existence check before returning.
+ */
+async function generateUniqueAssetId(): Promise<string> {
+  // Local count of ALL assets (every user in this browser)
+  const localCount = getAssets().length;
+
+  let globalCount = localCount;
+
+  // If Firestore is configured, get the true global count from the server
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getCountFromServer(collection(db, "assets"));
+      globalCount = Math.max(localCount, snap.data().count);
+    } catch {
+      // Fall through with local count
+    }
+  }
+
+  // Try candidate IDs, checking for collisions in Firestore
+  const MAX_ATTEMPTS = 20;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const candidateNumber = 10001 + globalCount + attempt;
+    const candidateId = `TP-${candidateNumber}`;
+
+    // Check local collision
+    if (findAsset(candidateId)) continue;
+
+    // Check Firestore collision
+    if (isFirebaseConfigured && db) {
+      try {
+        const existing = await getDoc(doc(db, "assets", candidateId));
+        if (existing.exists()) continue;
+      } catch {
+        // If we can't reach Firestore, accept the candidate
+      }
+    }
+
+    return candidateId;
+  }
+
+  // Absolute fallback: timestamp-based ID to guarantee uniqueness
+  return `TP-${Date.now()}`;
+}
+
+/**
  * Primary user action: User provides raw data -> Centralized rule engine derives technical DNA & records.
  */
 export async function registerAsset(
   userId: string,
   rawInput: RawAssetInput
 ): Promise<{ asset: Asset; events: ProvenanceEvent[] }> {
-  const currentAssets = getAssets(userId);
-  const processed = await processAssetInput(rawInput, userId, currentAssets.length);
+  const assetId = await generateUniqueAssetId();
+  const processed = await processAssetInput(rawInput, userId, assetId);
 
   const asset: Asset = {
     id: processed.assetId,

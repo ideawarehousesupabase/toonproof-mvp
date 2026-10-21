@@ -13,7 +13,7 @@ function iconFor(fileName = "", mimeType = ""): LucideIcon {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (
     mimeType.startsWith("image/") ||
-    ["psd", "svg", "png", "jpg", "jpeg", "gif", "webp"].includes(ext)
+    ["psd", "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "tif", "tiff", "jfif", "apng"].includes(ext)
   ) {
     return ImageIcon;
   }

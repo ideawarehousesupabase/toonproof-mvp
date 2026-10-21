@@ -9,6 +9,41 @@ const JPEG_QUALITY = 0.72;
 const MAX_DATA_URL_LENGTH = 120_000; // ~90 KB, keeps localStorage / Firestore docs small
 const LOAD_TIMEOUT_MS = 10_000;
 
+/**
+ * Browser-decodable image extensions — anything the <img> element can natively render.
+ * PSD, AI, etc. are intentionally excluded because browsers cannot decode them.
+ */
+const IMAGE_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "svg", "avif",
+  "bmp", "ico", "tif", "tiff", "jfif", "pjpeg", "pjp",
+  "apng", "cur",
+]);
+
+const VIDEO_EXTENSIONS = new Set([
+  "mp4", "webm", "mov", "ogg", "ogv", "avi", "m4v",
+]);
+
+/**
+ * Determine whether a file is an image, video, or neither by checking
+ * both the MIME type and the file extension. This handles the common case
+ * where the browser reports an empty or generic MIME (application/octet-stream)
+ * for valid image files.
+ */
+function classifyFile(file: File): "image" | "video" | null {
+  const mime = (file.type || "").toLowerCase();
+
+  // MIME type is the most reliable signal when present
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+
+  // Fall back to extension when MIME is missing or generic
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  if (VIDEO_EXTENSIONS.has(ext)) return "video";
+
+  return null;
+}
+
 function drawToDataUrl(
   source: CanvasImageSource,
   width: number,
@@ -54,13 +89,25 @@ function withTimeout<T>(promise: Promise<T>): Promise<T | undefined> {
 function imageThumbnail(url: string): Promise<string | undefined> {
   return new Promise((resolve) => {
     const img = new Image();
+    // Prevent canvas tainting for SVGs and data URIs with external refs
+    img.crossOrigin = "anonymous";
     img.onload = () => {
       // SVGs without intrinsic size report 0 — fall back to a square canvas.
       const width = img.naturalWidth || MAX_DIMENSION;
       const height = img.naturalHeight || MAX_DIMENSION;
       resolve(drawToDataUrl(img, width, height));
     };
-    img.onerror = () => resolve(undefined);
+    img.onerror = () => {
+      // Retry without crossOrigin — some blob URLs reject CORS
+      const retry = new Image();
+      retry.onload = () => {
+        const width = retry.naturalWidth || MAX_DIMENSION;
+        const height = retry.naturalHeight || MAX_DIMENSION;
+        resolve(drawToDataUrl(retry, width, height));
+      };
+      retry.onerror = () => resolve(undefined);
+      retry.src = url;
+    };
     img.src = url;
   });
 }
@@ -87,14 +134,12 @@ function videoThumbnail(url: string): Promise<string | undefined> {
 export async function createThumbnail(file: File): Promise<string | undefined> {
   if (typeof window === "undefined") return undefined;
 
-  const mime = file.type || "";
-  const isImage = mime.startsWith("image/");
-  const isVideo = mime.startsWith("video/");
-  if (!isImage && !isVideo) return undefined;
+  const kind = classifyFile(file);
+  if (!kind) return undefined;
 
   const url = URL.createObjectURL(file);
   try {
-    return await withTimeout(isImage ? imageThumbnail(url) : videoThumbnail(url));
+    return await withTimeout(kind === "image" ? imageThumbnail(url) : videoThumbnail(url));
   } catch {
     return undefined;
   } finally {
