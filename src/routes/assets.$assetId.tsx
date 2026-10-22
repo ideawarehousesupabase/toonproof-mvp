@@ -5,7 +5,6 @@ import { AssetThumb } from "@/components/AssetThumb";
 import { Alert, Card, DetailRow, Field, PageHeader, StatusBadge, Toggle } from "@/components/ui-kit";
 import {
   addShare,
-  certIdFor,
   certificateBlocker,
   deleteAsset,
   deleteCertificate,
@@ -793,9 +792,9 @@ function CertificateTab({
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const cert = getCertificate(asset.id, userId);
-  const certId = cert?.id ?? certIdFor(asset.id);
+  const certId = cert?.id;
   const blocker = certificateBlocker(asset);
-  const verifyUrl = verificationUrl(certId);
+  const verifyUrl = certId ? verificationUrl(certId) : "";
   const p = getPermissions(asset.id);
   const commercial = !!p.general["Commercial Production"];
   const derivative = !!p.general["Derivative Creation"];
@@ -808,10 +807,12 @@ function CertificateTab({
     setMessage(null);
     setBusy(true);
     try {
-      await issueCertificate(userId, asset.id, { name: creator, email: ownerEmail });
+      const issued = await issueCertificate(userId, asset.id, { name: creator, email: ownerEmail });
       setMessage({
         tone: "success",
-        text: cert ? `Certificate ${certId} is up to date.` : `Certificate ${certId} generated & verified.`,
+        text: cert
+          ? `Certificate ${issued.id} is up to date.`
+          : `Certificate ${issued.id} generated & verified.`,
       });
     } catch (err: unknown) {
       setMessage({ tone: "error", text: errorText(err, "Couldn't generate the certificate.") });
@@ -821,7 +822,7 @@ function CertificateTab({
   }
 
   function handleDownload() {
-    if (!cert) {
+    if (!cert || !certId) {
       setMessage({ tone: "error", text: "Please generate the certificate first." });
       return;
     }
@@ -912,7 +913,13 @@ function CertificateTab({
         <div className="mt-5">
           <DetailRow
             label="Certificate ID"
-            value={<span className="font-mono font-bold">{certId}</span>}
+            value={
+              certId ? (
+                <span className="font-mono font-bold">{certId}</span>
+              ) : (
+                <span className="text-muted-foreground">Assigned when generated</span>
+              )
+            }
           />
           <DetailRow label="Asset Name" value={asset.name} />
           <DetailRow label="Creator" value={ownerName} />

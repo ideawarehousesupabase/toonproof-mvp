@@ -94,7 +94,7 @@ function VerifyCertificate() {
             <form onSubmit={submit} className="flex flex-col gap-2.5 sm:flex-row">
               <input
                 className="field-input font-mono uppercase"
-                placeholder="Certificate ID, e.g. TPC-10002"
+                placeholder="Certificate ID, e.g. TPC-50001"
                 aria-label="Certificate ID"
                 value={certId}
                 onChange={(e) => setCertId(e.target.value)}

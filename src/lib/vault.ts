@@ -15,10 +15,10 @@ import {
   setDoc,
   getDoc,
   getDocs,
-  getCountFromServer,
   query,
   where,
   deleteDoc,
+  runTransaction,
 } from "firebase/firestore";
 
 export type {
@@ -107,51 +107,120 @@ export function findAsset(assetId: string, userId?: string): Asset | undefined {
   return assets.find((a) => a.id === assetId);
 }
 
-/**
- * Generate a globally unique sequential asset ID.
- * Counts ALL assets across every user (local + Firestore) so IDs never collide
- * between different accounts. Performs a Firestore existence check before returning.
- */
-async function generateUniqueAssetId(): Promise<string> {
-  // Local count of ALL assets (every user in this browser)
-  const localCount = getAssets().length;
+// --------------------------------------------------------------------------
+// IDS — separate, ever-increasing sequences; a number is never reused, even after deletes
+//   Assets:        TP-10001, TP-10002, …
+//   Certificates:  TPC-50001, TPC-50002, …
+// --------------------------------------------------------------------------
 
-  let globalCount = localCount;
+const COUNTERS_KEY = "toonproof_mvp_counters";
 
-  // If Firestore is configured, get the true global count from the server
+type Sequence = "assets" | "certificates";
+
+const SEQUENCES: Record<Sequence, { prefix: string; start: number; end: number }> = {
+  assets: { prefix: "TP-", start: 10001, end: 49999 },
+  certificates: { prefix: "TPC-", start: 50001, end: 999999 },
+};
+
+function sequenceNumber(kind: Sequence, id: string): number | undefined {
+  const { prefix, start, end } = SEQUENCES[kind];
+  const match = new RegExp(`^${prefix}(\\d+)$`).exec(id);
+  const n = match ? Number(match[1]) : NaN;
+  return n >= start && n <= end ? n : undefined;
+}
+
+function highestNumber(kind: Sequence, ids: string[]): number {
+  let max = SEQUENCES[kind].start - 1;
+  for (const id of ids) {
+    const n = sequenceNumber(kind, id);
+    if (n !== undefined && n > max) max = n;
+  }
+  return max;
+}
+
+function localIds(kind: Sequence): string[] {
+  const store = readLocalVault();
+  return kind === "assets" ? store.assets.map((a) => a.id) : store.certificates.map((c) => c.id);
+}
+
+function readLocalCounters(): Record<Sequence, number> {
+  const fallback = { assets: 0, certificates: 0 };
+  if (typeof window === "undefined") return fallback;
+  try {
+    return { ...fallback, ...JSON.parse(window.localStorage.getItem(COUNTERS_KEY) ?? "{}") };
+  } catch {
+    return fallback;
+  }
+}
+
+function rememberLocalCounter(kind: Sequence, value: number) {
+  if (typeof window === "undefined") return;
+  const counters = readLocalCounters();
+  counters[kind] = Math.max(counters[kind], value);
+  try {
+    window.localStorage.setItem(COUNTERS_KEY, JSON.stringify(counters));
+  } catch {
+    // non-critical
+  }
+}
+
+/** Atomically reserves the next number of a sequence. */
+async function reserveNumber(kind: Sequence): Promise<number> {
+  const floor = Math.max(
+    highestNumber(kind, localIds(kind)),
+    readLocalCounters()[kind] || 0,
+  );
+
+  if (isFirebaseConfigured && db) {
+    const firestore = db;
+    try {
+      const next = await runTransaction(firestore, async (tx) => {
+        const ref = doc(firestore, "counters", kind);
+        const snap = await tx.get(ref);
+        let last = Number(snap.exists() ? snap.data()["last"] : NaN);
+        if (!Number.isFinite(last)) {
+          // First use: continue after the highest ID already in the registry
+          const existing = await getDocs(collection(firestore, kind));
+          last = highestNumber(
+            kind,
+            existing.docs.map((d) => d.id),
+          );
+        }
+        const value = Math.max(last, floor) + 1;
+        tx.set(ref, { last: value, updatedAt: new Date().toISOString() }, { merge: true });
+        return value;
+      });
+      rememberLocalCounter(kind, next);
+      return next;
+    } catch (err) {
+      console.warn("Firestore ID counter notice:", err);
+    }
+  }
+
+  const next = floor + 1;
+  rememberLocalCounter(kind, next);
+  return next;
+}
+
+async function idTaken(kind: Sequence, id: string): Promise<boolean> {
+  if (localIds(kind).includes(id)) return true;
   if (isFirebaseConfigured && db) {
     try {
-      const snap = await getCountFromServer(collection(db, "assets"));
-      globalCount = Math.max(localCount, snap.data().count);
+      return (await getDoc(doc(db, kind, id))).exists();
     } catch {
-      // Fall through with local count
+      // can't check — accept
     }
   }
+  return false;
+}
 
-  // Try candidate IDs, checking for collisions in Firestore
-  const MAX_ATTEMPTS = 20;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const candidateNumber = 10001 + globalCount + attempt;
-    const candidateId = `TP-${candidateNumber}`;
-
-    // Check local collision
-    if (findAsset(candidateId)) continue;
-
-    // Check Firestore collision
-    if (isFirebaseConfigured && db) {
-      try {
-        const existing = await getDoc(doc(db, "assets", candidateId));
-        if (existing.exists()) continue;
-      } catch {
-        // If we can't reach Firestore, accept the candidate
-      }
-    }
-
-    return candidateId;
+/** Next unused ID of a sequence, e.g. "TP-10007" or "TPC-50003". */
+async function nextId(kind: Sequence): Promise<string> {
+  for (let attempt = 0; attempt < 25; attempt++) {
+    const id = `${SEQUENCES[kind].prefix}${await reserveNumber(kind)}`;
+    if (!(await idTaken(kind, id))) return id;
   }
-
-  // Absolute fallback: timestamp-based ID to guarantee uniqueness
-  return `TP-${Date.now()}`;
+  throw new Error("Couldn't allocate a new ID. Please try again.");
 }
 
 /**
@@ -161,7 +230,7 @@ export async function registerAsset(
   userId: string,
   rawInput: RawAssetInput
 ): Promise<{ asset: Asset; events: ProvenanceEvent[] }> {
-  const assetId = await generateUniqueAssetId();
+  const assetId = await nextId("assets");
   const processed = await processAssetInput(rawInput, userId, assetId);
 
   const asset: Asset = {
@@ -220,6 +289,16 @@ export async function registerAsset(
 }
 
 /**
+ * True when a cloud record is missing or belongs to this user. Assets registered before IDs
+ * became unique can share an ID with another user's record, which must never be touched.
+ */
+async function ownsCloudDoc(path: "assets" | "permissions", id: string, userId: string) {
+  if (!isFirebaseConfigured || !db) return false;
+  const snap = await getDoc(doc(db, path, id));
+  return !snap.exists() || snap.data()["userId"] === userId;
+}
+
+/**
  * Attach or replace the preview image of an existing asset (e.g. assets registered
  * before previews existed, or file types the browser cannot render).
  */
@@ -250,11 +329,13 @@ export async function updateAssetPreview(userId: string, assetId: string, thumbn
 
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(
-        doc(db, "assets", assetId),
-        { thumbnail, previewSource: "manual" },
-        { merge: true },
-      );
+      if (await ownsCloudDoc("assets", assetId, userId)) {
+        await setDoc(
+          doc(db, "assets", assetId),
+          { thumbnail, previewSource: "manual" },
+          { merge: true },
+        );
+      }
       await setDoc(doc(db, "events", event.id), event);
     } catch (err) {
       console.warn("Firestore preview sync notice:", err);
@@ -315,7 +396,9 @@ export async function updateAssetInfo(userId: string, assetId: string, patch: As
 
   if (isFirebaseConfigured && db) {
     try {
-      await setDoc(doc(db, "assets", assetId), next, { merge: true });
+      if (await ownsCloudDoc("assets", assetId, userId)) {
+        await setDoc(doc(db, "assets", assetId), next, { merge: true });
+      }
       await setDoc(doc(db, "events", event.id), event);
     } catch (err) {
       console.warn("Firestore asset update notice:", err);
@@ -329,23 +412,30 @@ export async function deleteAsset(userId: string, assetId: string) {
   const target = store.assets.find((a) => a.id === assetId && a.userId === userId);
   if (!target) throw new Error("Asset not found in your vault.");
 
-  const certIds = store.certificates.filter((c) => c.assetId === assetId).map((c) => c.id);
-  const shareIds = store.shares.filter((s) => s.assetId === assetId).map((s) => s.id);
-  const eventIds = store.events.filter((e) => e.assetId === assetId).map((e) => e.id);
+  // Match on owner too: assets registered before IDs became unique can share an ID across users
+  const owned = (x: { assetId: string; userId: string }) =>
+    x.assetId === assetId && x.userId === userId;
+  const certIds = store.certificates.filter(owned).map((c) => c.id);
+  const shareIds = store.shares.filter(owned).map((s) => s.id);
+  const eventIds = store.events.filter(owned).map((e) => e.id);
 
   store.assets = store.assets.filter((a) => a !== target);
-  store.certificates = store.certificates.filter((c) => c.assetId !== assetId);
-  store.shares = store.shares.filter((s) => s.assetId !== assetId);
-  store.events = store.events.filter((e) => e.assetId !== assetId);
+  store.certificates = store.certificates.filter((c) => !owned(c));
+  store.shares = store.shares.filter((s) => !owned(s));
+  store.events = store.events.filter((e) => !owned(e));
   delete store.permissions[assetId];
   writeLocalVault(store);
 
   if (isFirebaseConfigured && db) {
     const firestore = db;
     try {
+      const [ownsAsset, ownsPermissions] = await Promise.all([
+        ownsCloudDoc("assets", assetId, userId),
+        ownsCloudDoc("permissions", assetId, userId),
+      ]);
       await Promise.all([
-        deleteDoc(doc(firestore, "assets", assetId)),
-        deleteDoc(doc(firestore, "permissions", assetId)),
+        ownsAsset ? deleteDoc(doc(firestore, "assets", assetId)) : Promise.resolve(),
+        ownsPermissions ? deleteDoc(doc(firestore, "permissions", assetId)) : Promise.resolve(),
         ...certIds.map((id) => deleteDoc(doc(firestore, "certificates", id))),
         ...shareIds.map((id) => deleteDoc(doc(firestore, "shares", id))),
         ...eventIds.map((id) => deleteDoc(doc(firestore, "events", id))),
@@ -581,10 +671,6 @@ export function getProvenance(asset: Asset): ProvenanceEvent[] {
 // CERTIFICATES
 // --------------------------------------------------------------------------
 
-export function certIdFor(assetId: string) {
-  return "TPC-" + assetId.replace("TP-", "");
-}
-
 export function getCertificate(assetId: string, userId?: string): Certificate | undefined {
   const store = readLocalVault();
   return store.certificates.find(
@@ -625,7 +711,7 @@ export async function issueCertificate(
     ? { ownerName: owner.name.trim(), ownerEmail: maskEmail(owner.email) }
     : {};
 
-  const existing = store.certificates.find((c) => c.assetId === assetId);
+  const existing = store.certificates.find((c) => c.assetId === assetId && c.userId === userId);
   if (existing) {
     // Refresh owner details on certificates issued before they were recorded
     if (owner && (!existing.ownerName || !existing.ownerEmail)) {
@@ -648,7 +734,7 @@ export async function issueCertificate(
     month: "short",
     year: "numeric",
   });
-  const certId = certIdFor(assetId);
+  const certId = await nextId("certificates");
   const hashSig = asset.dna?.exactHash || `SIG_${Date.now()}`;
 
   const cert: Certificate = {
