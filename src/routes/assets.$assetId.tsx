@@ -204,11 +204,11 @@ function Overview({
             );
           })}
         </div>
-        <p className="mt-3 text-xs text-muted-foreground">
-          {asset.hashedFromFile
-            ? "SHA-256 computed from the uploaded file's contents."
-            : "Legacy record: registered before file-content fingerprinting. Re-register the file to fingerprint its contents."}
-        </p>
+        {asset.hashedFromFile ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            SHA-256 computed from the uploaded file&rsquo;s contents.
+          </p>
+        ) : null}
       </Card>
     </div>
   );
