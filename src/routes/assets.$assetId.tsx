@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AppShell, useRequireSession } from "@/components/AppShell";
 import { AssetThumb } from "@/components/AssetThumb";
 import { Alert, Card, DetailRow, Field, PageHeader, StatusBadge, Toggle } from "@/components/ui-kit";
@@ -14,10 +14,21 @@ import {
   issueCertificate,
   revokeShare,
   savePermissions,
+  updateAssetPreview,
   useVault,
 } from "@/lib/vault";
+import { PREVIEW_IMAGE_ACCEPT, createThumbnail } from "@/lib/thumbnail";
 import { downloadCertificate } from "@/lib/certificate";
-import { Dna, Fingerprint, ShieldCheck, Share2, FileCheck2, History } from "lucide-react";
+import {
+  Dna,
+  Fingerprint,
+  ShieldCheck,
+  Share2,
+  FileCheck2,
+  History,
+  ImagePlus,
+  Loader2,
+} from "lucide-react";
 import type { Asset } from "@/lib/types";
 
 export const Route = createFileRoute("/assets/$assetId")({
@@ -102,7 +113,9 @@ function AssetDetails() {
         ))}
       </div>
 
-      {tab === "Overview" ? <Overview asset={asset} creator={creator} /> : null}
+      {tab === "Overview" ? (
+        <Overview asset={asset} creator={creator} userId={session?.id ?? ""} />
+      ) : null}
       {tab === "Permissions" ? (
         <PermissionsTab assetId={asset.id} userId={session?.id ?? ""} />
       ) : null}
@@ -115,7 +128,15 @@ function AssetDetails() {
   );
 }
 
-function Overview({ asset, creator }: { asset: Asset; creator: string }) {
+function Overview({
+  asset,
+  creator,
+  userId,
+}: {
+  asset: Asset;
+  creator: string;
+  userId: string;
+}) {
   const dna = [
     {
       label: "Exact SHA-256 Hash",
@@ -141,14 +162,7 @@ function Overview({ asset, creator }: { asset: Asset; creator: string }) {
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
         <h2 className="mb-2 text-base font-bold">Asset Information</h2>
-        <AssetThumb
-          src={asset.thumbnail}
-          fileName={asset.fileName}
-          mimeType={asset.fileMimeType}
-          alt={`Preview of ${asset.name}`}
-          size="lg"
-          className="mb-3"
-        />
+        <AssetPreviewEditor asset={asset} userId={userId} />
         <DetailRow label="Asset Name" value={asset.name} />
         <DetailRow label="Asset Type" value={asset.type} />
         <DetailRow label="Registration ID" value={<span className="font-mono">{asset.id}</span>} />
@@ -190,7 +204,99 @@ function Overview({ asset, creator }: { asset: Asset; creator: string }) {
             );
           })}
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {asset.hashedFromFile
+            ? "SHA-256 computed from the uploaded file's contents."
+            : "Legacy record: registered before file-content fingerprinting. Re-register the file to fingerprint its contents."}
+        </p>
       </Card>
+    </div>
+  );
+}
+
+function AssetPreviewEditor({ asset, userId }: { asset: Asset; userId: string }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(
+    null,
+  );
+
+  async function pickPreview(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const thumb = await createThumbnail(f);
+      if (!thumb) {
+        setMessage({
+          tone: "error",
+          text: "We couldn't read that image. Please choose a PNG or JPG file.",
+        });
+        return;
+      }
+      await updateAssetPreview(userId, asset.id, thumb);
+      setMessage({ tone: "success", text: "Preview image saved." });
+    } catch (err: unknown) {
+      setMessage({
+        tone: "error",
+        text: err instanceof Error && err.message ? err.message : "Couldn't save the preview image.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mb-3">
+      {busy ? (
+        <div className="flex h-56 w-full flex-col items-center justify-center gap-2 rounded-xl border border-border bg-secondary/40 text-xs text-muted-foreground">
+          <Loader2 className="size-6 animate-spin text-accent" />
+          Saving preview...
+        </div>
+      ) : (
+        <AssetThumb
+          src={asset.thumbnail}
+          fileName={asset.fileName}
+          mimeType={asset.fileMimeType}
+          alt={`Preview of ${asset.name}`}
+          size="lg"
+          emptyText="No preview image saved for this asset yet"
+        />
+      )}
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          {asset.thumbnail
+            ? asset.previewSource === "manual"
+              ? "Preview image added by the creator"
+              : "Preview generated from the source file"
+            : "Add a picture of this asset so you can recognise it."}
+        </p>
+        <button
+          type="button"
+          disabled={busy}
+          className={`btn-base text-xs disabled:cursor-not-allowed disabled:opacity-60 ${
+            asset.thumbnail ? "btn-outline" : "btn-primary"
+          }`}
+          onClick={() => input.current?.click()}
+        >
+          <ImagePlus className="size-3.5" />
+          {asset.thumbnail ? "Change Preview" : "Add Preview Image"}
+        </button>
+      </div>
+      {message ? (
+        <div className="mt-2">
+          <Alert tone={message.tone}>{message.text}</Alert>
+        </div>
+      ) : null}
+      <input
+        ref={input}
+        type="file"
+        accept={PREVIEW_IMAGE_ACCEPT}
+        className="hidden"
+        onChange={pickPreview}
+      />
     </div>
   );
 }
@@ -489,6 +595,9 @@ function CertificateTab({
       commercial,
       derivative,
       aiTraining,
+      thumbnail: asset.thumbnail,
+      fileName: asset.fileName ? `${asset.fileName} (${asset.fileSize})` : undefined,
+      hashedFromFile: asset.hashedFromFile,
     });
     setMessage(`Certificate ${certId} downloaded successfully.`);
   }
@@ -504,6 +613,16 @@ function CertificateTab({
           <h2 className="mt-1 text-xl font-bold">Provenance Certificate</h2>
         </div>
 
+        <AssetThumb
+          src={asset.thumbnail}
+          fileName={asset.fileName}
+          mimeType={asset.fileMimeType}
+          alt={`Preview of ${asset.name}`}
+          size="lg"
+          className="mt-5"
+          emptyText="No preview image — add one on the Overview tab"
+        />
+
         <div className="mt-5">
           <DetailRow label="Certificate ID" value={<span className="font-mono font-bold">{certId}</span>} />
           <DetailRow label="Asset Name" value={asset.name} />
@@ -511,6 +630,10 @@ function CertificateTab({
           <DetailRow label="Asset Type" value={asset.type} />
           <DetailRow label="Registration ID" value={<span className="font-mono">{asset.id}</span>} />
           <DetailRow label="Registration Date" value={asset.registeredOn} />
+          <DetailRow
+            label="Source File"
+            value={asset.fileName ? `${asset.fileName} (${asset.fileSize})` : "—"}
+          />
           <DetailRow
             label="Cryptographic SHA-256"
             value={<span className="font-mono text-xs">{asset.dna?.exactHash ? `${asset.dna.exactHash.slice(0, 18)}...` : "Verified"}</span>}

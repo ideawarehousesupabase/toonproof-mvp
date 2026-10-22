@@ -36,6 +36,23 @@ export async function computeSha256(input: string): Promise<string> {
   return `${part1}${part2}${part3}${part4}${part5}${part6}${part7}${part8}`;
 }
 
+/**
+ * SHA-256 of the actual file contents — the real cryptographic fingerprint of the asset.
+ * Returns undefined if the file cannot be read (e.g. too large for browser memory).
+ */
+export async function computeFileSha256(file: Blob): Promise<string | undefined> {
+  try {
+    if (typeof window === "undefined" || !window.crypto?.subtle) return undefined;
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await window.crypto.subtle.digest("SHA-256", buffer);
+    return Array.from(new Uint8Array(hashBuffer))
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    return undefined;
+  }
+}
+
 export type RawAssetInput = {
   name: string;
   type: string;
@@ -45,6 +62,12 @@ export type RawAssetInput = {
   fileSize?: string;
   fileMimeType?: string | undefined;
   thumbnail?: string | undefined;
+  /** "file" when the preview was generated from the uploaded file, "manual" when the creator attached one */
+  previewSource?: "file" | "manual" | undefined;
+  /** SHA-256 of the uploaded file's bytes */
+  fileHash?: string | undefined;
+  /** 16-hex-char dHash of the file-generated preview */
+  visualHash?: string | undefined;
 };
 
 export type ProcessedAssetData = {
@@ -69,12 +92,12 @@ export async function processAssetInput(
   const normalizedType = input.type.trim();
   const rawSeed = `${userId}:${normalizedName}:${normalizedType}:${input.fileName ?? ""}:${input.fileSize ?? ""}`;
 
-  // 1. Cryptographic exact hash (SHA-256)
-  const exactHash = await computeSha256(rawSeed);
+  // 1. Cryptographic exact hash — SHA-256 of the file contents (metadata seed only as a fallback)
+  const exactHash = input.fileHash ?? (await computeSha256(rawSeed));
 
-  // 2. Perceptual visual hash
-  const pHashSeed = `${normalizedType}:${normalizedName}:${input.fileName ?? "asset"}`;
-  const pHashRaw = await computeSha256(pHashSeed);
+  // 2. Perceptual visual hash — dHash of the file's own pixels when available
+  const pHashSeed = `${normalizedType}:${input.fileHash ?? normalizedName}:${input.fileName ?? "asset"}`;
+  const pHashRaw = input.visualHash ?? (await computeSha256(pHashSeed));
   const perceptualHash = `pHash_${pHashRaw.slice(0, 16)}`;
 
   // 3. AI Permission Token

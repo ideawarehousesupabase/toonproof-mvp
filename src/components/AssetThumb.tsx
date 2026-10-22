@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { File, FileJson, Film, Image as ImageIcon, Layers, type LucideIcon } from "lucide-react";
 
 type AssetThumbProps = {
@@ -7,13 +8,30 @@ type AssetThumbProps = {
   alt: string;
   size?: "sm" | "lg";
   className?: string;
+  /** Text shown in the large empty state */
+  emptyText?: string;
 };
 
 function iconFor(fileName = "", mimeType = ""): LucideIcon {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (
     mimeType.startsWith("image/") ||
-    ["psd", "svg", "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico", "tif", "tiff", "jfif", "apng"].includes(ext)
+    [
+      "psd",
+      "svg",
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "avif",
+      "bmp",
+      "ico",
+      "tif",
+      "tiff",
+      "jfif",
+      "apng",
+    ].includes(ext)
   ) {
     return ImageIcon;
   }
@@ -38,16 +56,19 @@ export function AssetThumb({
   alt,
   size = "sm",
   className = "",
+  emptyText = "No preview image yet",
 }: AssetThumbProps) {
+  const [failedSrc, setFailedSrc] = useState<string | undefined>(undefined);
   const box = size === "lg" ? "h-56 w-full rounded-xl" : "size-10 shrink-0 rounded-lg";
 
-  if (src) {
+  if (src && src !== failedSrc) {
     return (
       <div className={`overflow-hidden border border-border bg-secondary/40 ${box} ${className}`}>
         <img
           src={src}
           alt={alt}
           loading="lazy"
+          onError={() => setFailedSrc(src)}
           className={`h-full w-full ${size === "lg" ? "object-contain" : "object-cover"}`}
         />
       </div>
@@ -62,9 +83,7 @@ export function AssetThumb({
       role="img"
     >
       <Icon className={size === "lg" ? "size-10 text-accent" : "size-5 text-accent"} />
-      {size === "lg" ? (
-        <span className="px-4 text-center text-xs">Preview not available for this file type</span>
-      ) : null}
+      {size === "lg" ? <span className="px-4 text-center text-xs">{emptyText}</span> : null}
     </div>
   );
 }

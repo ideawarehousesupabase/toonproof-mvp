@@ -4,6 +4,7 @@ import { AppShell, useRequireSession } from "@/components/AppShell";
 import { Alert, Card, PageHeader, StatusBadge } from "@/components/ui-kit";
 import { getPermissions, listCertificates, useVault } from "@/lib/vault";
 import { downloadCertificate } from "@/lib/certificate";
+import { AssetThumb } from "@/components/AssetThumb";
 import { FileBadge, Download, ArrowRight } from "lucide-react";
 
 export const Route = createFileRoute("/certificates")({
@@ -68,11 +69,19 @@ function Certificates() {
             key={c.id}
             className="card-surface flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
           >
-            <div>
-              <p className="font-semibold text-foreground">{c.asset.name}</p>
-              <p className="text-xs text-muted-foreground font-mono">
-                {c.id} · Issued {c.date} · {c.asset.type}
-              </p>
+            <div className="flex min-w-0 items-center gap-3">
+              <AssetThumb
+                src={c.asset.thumbnail}
+                fileName={c.asset.fileName}
+                mimeType={c.asset.fileMimeType}
+                alt={`Preview of ${c.asset.name}`}
+              />
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">{c.asset.name}</p>
+                <p className="text-xs text-muted-foreground font-mono">
+                  {c.id} · Issued {c.date} · {c.asset.type}
+                </p>
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <StatusBadge status="Valid" />
@@ -102,6 +111,11 @@ function Certificates() {
                     commercial: !!p.general["Commercial Production"],
                     derivative: !!p.general["Derivative Creation"],
                     aiTraining: !!p.ai["Public AI Training"] || !!p.ai["Private AI Fine-Tuning"],
+                    thumbnail: c.asset.thumbnail,
+                    fileName: c.asset.fileName
+                      ? `${c.asset.fileName} (${c.asset.fileSize})`
+                      : undefined,
+                    hashedFromFile: c.asset.hashedFromFile,
                   });
                   setMessage(`Certificate ${c.id} downloaded successfully.`);
                 }}

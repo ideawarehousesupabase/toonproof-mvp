@@ -80,8 +80,12 @@ export type Asset = {
   fileName?: string;
   fileSize?: string;
   fileMimeType?: string;
-  /** Small JPEG data URL preview (images & videos only) */
+  /** Small JPEG data URL preview of the asset */
   thumbnail?: string;
+  /** "file" = generated from the uploaded file, "manual" = preview image attached by the creator */
+  previewSource?: "file" | "manual";
+  /** true when dna.exactHash is the SHA-256 of the file contents (older assets hashed metadata) */
+  hashedFromFile?: boolean;
   dna: AssetDNA;
 };
 

@@ -62,9 +62,33 @@ function readLocalVault(): LocalVaultStore {
   return empty;
 }
 
-function writeLocalVault(store: LocalVaultStore) {
+function writeLocalVault(store: LocalVaultStore, keepPreviewFor?: string) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(store));
+  try {
+    window.localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(store));
+  } catch (err) {
+    // Browser storage full — drop cached previews from the oldest assets until it fits.
+    // (Previews remain in Firestore when configured and are re-synced on next load.)
+    const withPreview = store.assets
+      .filter((a) => a.thumbnail && a.id !== keepPreviewFor)
+      .sort((a, b) => (b.createdAt ?? "").localeCompare(a.createdAt ?? ""));
+    let saved = false;
+    for (let i = withPreview.length - 1; i >= 0 && !saved; i--) {
+      delete withPreview[i]!.thumbnail;
+      try {
+        window.localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(store));
+        saved = true;
+      } catch {
+        // keep trimming
+      }
+    }
+    if (!saved) {
+      console.warn("Local vault storage notice:", err);
+      throw new Error(
+        "Your browser storage is full, so this change couldn't be saved. Clear some site data for this app and try again.",
+      );
+    }
+  }
   window.dispatchEvent(new Event(VAULT_EVENT));
 }
 
@@ -155,6 +179,10 @@ export async function registerAsset(
     fileMimeType: rawInput.fileMimeType,
     // Only set when present — Firestore rejects undefined field values
     ...(rawInput.thumbnail ? { thumbnail: rawInput.thumbnail } : {}),
+    ...(rawInput.thumbnail && rawInput.previewSource
+      ? { previewSource: rawInput.previewSource }
+      : {}),
+    ...(rawInput.fileHash ? { hashedFromFile: true } : {}),
     dna: processed.dna,
   };
 
@@ -169,7 +197,7 @@ export async function registerAsset(
   store.assets = [asset, ...store.assets];
   store.permissions[asset.id] = processed.defaultPermissions;
   store.events = [...newEvents, ...store.events];
-  writeLocalVault(store);
+  writeLocalVault(store, asset.id);
 
   // Sync to Firebase if configured
   if (isFirebaseConfigured && db) {
@@ -189,6 +217,49 @@ export async function registerAsset(
   }
 
   return { asset, events: newEvents };
+}
+
+/**
+ * Attach or replace the preview image of an existing asset (e.g. assets registered
+ * before previews existed, or file types the browser cannot render).
+ */
+export async function updateAssetPreview(userId: string, assetId: string, thumbnail: string) {
+  const store = readLocalVault();
+  const target = store.assets.find((a) => a.id === assetId && a.userId === userId);
+  if (!target) throw new Error("Asset not found in your vault.");
+
+  const hadPreview = Boolean(target.thumbnail);
+  target.thumbnail = thumbnail;
+  target.previewSource = "manual";
+
+  const now = new Date();
+  const event: ProvenanceEvent = {
+    id: `evt_${Date.now()}`,
+    assetId,
+    userId,
+    date: now.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    timestamp: now.toISOString(),
+    event: hadPreview ? "Preview image replaced by creator" : "Preview image added by creator",
+  };
+  store.events = [event, ...store.events];
+  writeLocalVault(store, assetId);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(
+        doc(db, "assets", assetId),
+        { thumbnail, previewSource: "manual" },
+        { merge: true },
+      );
+      await setDoc(doc(db, "events", event.id), event);
+    } catch (err) {
+      console.warn("Firestore preview sync notice:", err);
+    }
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -564,7 +635,15 @@ export async function syncVaultFromFirebase(userId: string) {
     const otherAssets = store.assets.filter((a) => a.userId !== userId);
     const userAssetMap = new Map<string, Asset>();
     store.assets.filter((a) => a.userId === userId).forEach((a) => userAssetMap.set(a.id, a));
-    fbAssets.forEach((a) => userAssetMap.set(a.id, a));
+    fbAssets.forEach((a) => {
+      // Keep a locally saved preview if the cloud copy doesn't have one yet
+      const local = userAssetMap.get(a.id);
+      if (local?.thumbnail && !a.thumbnail) {
+        a.thumbnail = local.thumbnail;
+        if (local.previewSource) a.previewSource = local.previewSource;
+      }
+      userAssetMap.set(a.id, a);
+    });
 
     // Merge shares
     const otherShares = store.shares.filter((s) => s.userId !== userId);
