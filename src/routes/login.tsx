@@ -98,6 +98,12 @@ function Login() {
           Create Account
         </Link>
       </p>
+      <p className="mt-2 text-center text-sm text-muted-foreground">
+        Received a ToonProof certificate?{" "}
+        <Link to="/verify" className="font-semibold text-accent hover:underline">
+          Verify it
+        </Link>
+      </p>
     </AuthLayout>
   );
 }

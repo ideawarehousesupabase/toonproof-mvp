@@ -509,6 +509,12 @@ function Landing() {
 
           <div className="flex items-center gap-2.5">
             <Link
+              to="/verify"
+              className="hidden items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:inline-flex"
+            >
+              Verify Certificate
+            </Link>
+            <Link
               to="/login"
               className="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 hover:text-slate-900"
             >
@@ -548,6 +554,12 @@ function Landing() {
               ))}
             </nav>
             <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-2">
+              <Link
+                to="/verify"
+                className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Verify a Certificate
+              </Link>
               <Link
                 to="/login"
                 className="flex w-full items-center justify-center rounded-lg border border-slate-200 bg-white py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -1366,6 +1378,9 @@ function Landing() {
                 {item.label}
               </a>
             ))}
+            <Link to="/verify" className="hover:text-indigo-600 transition-colors">
+              Verify a Certificate
+            </Link>
           </nav>
         </div>
 
