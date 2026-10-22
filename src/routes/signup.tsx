@@ -133,6 +133,10 @@ function SignUp() {
         <Link to="/login" className="font-semibold text-accent hover:underline">
           Sign In
         </Link>
+        <span className="mx-1.5">·</span>
+        <Link to="/forgot-password" className="font-semibold text-accent hover:underline">
+          Forgot password?
+        </Link>
       </p>
     </AuthLayout>
   );

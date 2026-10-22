@@ -125,6 +125,10 @@ export type Certificate = {
   timestamp: string;
   status: "Valid";
   hashSignature: string;
+  /** Name of the account holder who issued the certificate */
+  ownerName?: string;
+  /** Masked email of the issuing account, e.g. "su***@gmail.com" */
+  ownerEmail?: string;
 };
 
 export type DashboardStats = {

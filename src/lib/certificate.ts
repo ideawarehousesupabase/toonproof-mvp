@@ -17,7 +17,17 @@ export type CertificateData = {
   /** Source file name and size */
   fileName?: string | undefined;
   hashedFromFile?: boolean | undefined;
+  /** Masked email of the account that owns the asset */
+  ownerEmail?: string | undefined;
+  /** Public page where anyone can check this certificate */
+  verifyUrl?: string | undefined;
 };
+
+/** Public verification page for a certificate ID. */
+export function verificationUrl(certId: string) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/verify?id=${encodeURIComponent(certId)}`;
+}
 
 const escapeHtml = (v: string) =>
   v
@@ -41,6 +51,7 @@ function certificateHtml(d: CertificateData) {
     ["Certificate ID", d.certId],
     ["Asset Name", d.assetName],
     ["Author / Creator", d.creator],
+    ["Owner Account", d.ownerEmail || "—"],
     ["Asset Type", d.assetType],
     ["Registration ID", d.assetId],
     ["Registration Date", d.registrationDate],
@@ -57,6 +68,7 @@ function certificateHtml(d: CertificateData) {
     ["Derivative Creation", perm(d.derivative, false)],
     ["AI Training Authorization", perm(d.aiTraining, false)],
     ["Certificate Status", "Valid & Tamper-Evident"],
+    ["Verify Online", d.verifyUrl || "—"],
   ];
 
   return `<!doctype html>
@@ -98,6 +110,11 @@ function certificateHtml(d: CertificateData) {
     </table>
     <div class="footer">
       <p>This document certifies the technical authorship and permissions record registered in ToonProof Vault.<br />Tamper-evident verification hash: <code>${escapeHtml(d.exactHash ?? d.certId)}</code></p>
+      ${
+        d.verifyUrl
+          ? `<p>Check that this certificate is genuine and see its registered owner at<br /><a href="${escapeHtml(d.verifyUrl)}">${escapeHtml(d.verifyUrl)}</a></p>`
+          : ""
+      }
     </div>
   </div>
 </body>

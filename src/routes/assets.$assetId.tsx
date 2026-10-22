@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { AppShell, useRequireSession } from "@/components/AppShell";
 import { AssetThumb } from "@/components/AssetThumb";
@@ -6,19 +6,25 @@ import { Alert, Card, DetailRow, Field, PageHeader, StatusBadge, Toggle } from "
 import {
   addShare,
   certIdFor,
+  certificateBlocker,
+  deleteAsset,
+  deleteCertificate,
   findAsset,
   getCertificate,
   getPermissions,
   getProvenance,
   getShares,
   issueCertificate,
+  maskEmail,
   revokeShare,
   savePermissions,
+  updateAssetInfo,
   updateAssetPreview,
   useVault,
 } from "@/lib/vault";
 import { PREVIEW_IMAGE_ACCEPT, createThumbnail } from "@/lib/thumbnail";
-import { downloadCertificate } from "@/lib/certificate";
+import { downloadCertificate, verificationUrl } from "@/lib/certificate";
+import { ASSET_TYPES } from "@/lib/mock";
 import {
   Dna,
   Fingerprint,
@@ -28,6 +34,9 @@ import {
   History,
   ImagePlus,
   Loader2,
+  Pencil,
+  Trash2,
+  Copy,
 } from "lucide-react";
 import type { Asset } from "@/lib/types";
 
@@ -64,6 +73,7 @@ function AssetDetails() {
   const { session } = useRequireSession();
   const initialTab = TABS.find((t) => t === search.tab) ?? "Overview";
   const [tab, setTab] = useState<Tab>(initialTab);
+  const [editing, setEditing] = useState(false);
 
   const ready = useVault(session?.id);
   const asset = ready && session ? findAsset(assetId, session.id) : undefined;
@@ -114,7 +124,13 @@ function AssetDetails() {
       </div>
 
       {tab === "Overview" ? (
-        <Overview asset={asset} creator={creator} userId={session?.id ?? ""} />
+        <Overview
+          asset={asset}
+          creator={creator}
+          userId={session?.id ?? ""}
+          editing={editing}
+          setEditing={setEditing}
+        />
       ) : null}
       {tab === "Permissions" ? (
         <PermissionsTab assetId={asset.id} userId={session?.id ?? ""} />
@@ -122,20 +138,38 @@ function AssetDetails() {
       {tab === "Sharing" ? <SharingTab assetId={asset.id} userId={session?.id ?? ""} /> : null}
       {tab === "Provenance" ? <ProvenanceTab asset={asset} /> : null}
       {tab === "Certificate" ? (
-        <CertificateTab asset={asset} creator={creator} userId={session?.id ?? ""} />
+        <CertificateTab
+          asset={asset}
+          creator={creator}
+          ownerEmail={session?.email ?? ""}
+          userId={session?.id ?? ""}
+          onGoToOverview={() => setTab("Overview")}
+          onEditDetails={() => {
+            setTab("Overview");
+            setEditing(true);
+          }}
+        />
       ) : null}
     </AppShell>
   );
+}
+
+function errorText(err: unknown, fallback: string) {
+  return err instanceof Error && err.message ? err.message : fallback;
 }
 
 function Overview({
   asset,
   creator,
   userId,
+  editing,
+  setEditing,
 }: {
   asset: Asset;
   creator: string;
   userId: string;
+  editing: boolean;
+  setEditing: (v: boolean) => void;
 }) {
   const dna = [
     {
@@ -159,58 +193,242 @@ function Overview({
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <h2 className="mb-2 text-base font-bold">Asset Information</h2>
-        <AssetPreviewEditor asset={asset} userId={userId} />
-        <DetailRow label="Asset Name" value={asset.name} />
-        <DetailRow label="Asset Type" value={asset.type} />
-        <DetailRow label="Registration ID" value={<span className="font-mono">{asset.id}</span>} />
-        <DetailRow label="Creator" value={creator} />
-        <DetailRow label="Registered On" value={asset.registeredOn} />
-        <DetailRow label="Description" value={asset.description || "—"} />
-        <DetailRow label="Project / Collection" value={asset.collection || "—"} />
-        <DetailRow
-          label="Attached File"
-          value={asset.fileName ? `${asset.fileName} (${asset.fileSize})` : "—"}
-        />
-        <DetailRow label="Status" value={<StatusBadge status={asset.status} />} />
-      </Card>
+    <div className="space-y-4">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <h2 className="text-base font-bold">Asset Information</h2>
+            {!editing ? (
+              <button
+                type="button"
+                className="btn-base btn-outline text-xs"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="size-3.5" />
+                Edit Details
+              </button>
+            ) : null}
+          </div>
+          <AssetPreviewEditor asset={asset} userId={userId} />
+          {editing ? (
+            <AssetInfoForm asset={asset} userId={userId} onDone={() => setEditing(false)} />
+          ) : (
+            <>
+              <DetailRow label="Asset Name" value={asset.name} />
+              <DetailRow label="Asset Type" value={asset.type} />
+              <DetailRow
+                label="Registration ID"
+                value={<span className="font-mono">{asset.id}</span>}
+              />
+              <DetailRow label="Creator" value={creator} />
+              <DetailRow label="Registered On" value={asset.registeredOn} />
+              <DetailRow label="Description" value={asset.description || "—"} />
+              <DetailRow label="Project / Collection" value={asset.collection || "—"} />
+              <DetailRow
+                label="Attached File"
+                value={asset.fileName ? `${asset.fileName} (${asset.fileSize})` : "—"}
+              />
+              <DetailRow label="Status" value={<StatusBadge status={asset.status} />} />
+            </>
+          )}
+        </Card>
 
-      <Card>
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold">Animation Asset DNA</h2>
-          <span className="rounded-full bg-success/15 px-2.5 py-0.5 font-mono text-[0.68rem] font-bold text-success">
-            Verified
-          </span>
-        </div>
-        <p className="mb-3 mt-1 text-xs text-muted-foreground">
-          Cryptographic and perceptual fingerprints with AI permission token.
-        </p>
-
-        <div className="divide-y divide-border">
-          {dna.map((item) => {
-            const Icon = item.icon;
-            return (
-              <div key={item.label} className="flex items-center justify-between py-2.5">
-                <div className="flex items-center gap-2">
-                  <Icon className="size-4 text-accent" />
-                  <span className="text-xs font-semibold text-foreground">{item.label}</span>
-                </div>
-                <span className="font-mono text-xs text-muted-foreground" title={item.full}>
-                  {item.value}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-        {asset.hashedFromFile ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            SHA-256 computed from the uploaded file&rsquo;s contents.
+        <Card>
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-bold">Animation Asset DNA</h2>
+            <span className="rounded-full bg-success/15 px-2.5 py-0.5 font-mono text-[0.68rem] font-bold text-success">
+              Verified
+            </span>
+          </div>
+          <p className="mb-3 mt-1 text-xs text-muted-foreground">
+            Cryptographic and perceptual fingerprints with AI permission token.
           </p>
-        ) : null}
-      </Card>
+
+          <div className="divide-y divide-border">
+            {dna.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="flex items-center justify-between py-2.5">
+                  <div className="flex items-center gap-2">
+                    <Icon className="size-4 text-accent" />
+                    <span className="text-xs font-semibold text-foreground">{item.label}</span>
+                  </div>
+                  <span className="font-mono text-xs text-muted-foreground" title={item.full}>
+                    {item.value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {asset.hashedFromFile ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              SHA-256 computed from the uploaded file&rsquo;s contents.
+            </p>
+          ) : null}
+        </Card>
+      </div>
+
+      <DeleteAssetCard asset={asset} userId={userId} />
     </div>
+  );
+}
+
+function AssetInfoForm({
+  asset,
+  userId,
+  onDone,
+}: {
+  asset: Asset;
+  userId: string;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(asset.name);
+  const [type, setType] = useState(asset.type);
+  const [description, setDescription] = useState(asset.description ?? "");
+  const [collection, setCollection] = useState(asset.collection ?? "");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const types: string[] = ASSET_TYPES.includes(asset.type as (typeof ASSET_TYPES)[number])
+    ? [...ASSET_TYPES]
+    : [asset.type, ...ASSET_TYPES];
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    if (!name.trim()) {
+      setError("Asset name can't be empty.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await updateAssetInfo(userId, asset.id, { name, type, description, collection });
+      onDone();
+    } catch (err: unknown) {
+      setError(errorText(err, "Couldn't save the asset details."));
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={save} className="space-y-3 pt-1">
+      {error ? <Alert tone="error">{error}</Alert> : null}
+      <Field label="Asset Name">
+        <input className="field-input" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+      <Field label="Asset Type">
+        <select className="field-input" value={type} onChange={(e) => setType(e.target.value)}>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Description" hint="Optional">
+        <textarea
+          rows={3}
+          className="field-input"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+      </Field>
+      <Field label="Project / Collection" hint="Optional">
+        <input
+          className="field-input"
+          value={collection}
+          onChange={(e) => setCollection(e.target.value)}
+        />
+      </Field>
+      <p className="text-xs text-muted-foreground">
+        The file, fingerprints, registration ID and registration date can&rsquo;t be changed. Your
+        certificate shows the updated details.
+      </p>
+      <div className="flex flex-wrap gap-2.5">
+        <button
+          type="submit"
+          disabled={saving}
+          className="btn-base btn-primary disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Saving..." : "Save Changes"}
+        </button>
+        <button type="button" className="btn-base btn-outline" onClick={onDone} disabled={saving}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function DeleteAssetCard({ asset, userId }: { asset: Asset; userId: string }) {
+  const navigate = useNavigate();
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function remove() {
+    setDeleting(true);
+    setError("");
+    try {
+      await deleteAsset(userId, asset.id);
+      navigate({ to: "/assets" });
+    } catch (err: unknown) {
+      setError(errorText(err, "Couldn't delete the asset."));
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <Card>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 className="text-base font-bold">Delete Asset</h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Permanently removes this asset with its certificate, sharing records and provenance
+            history.
+          </p>
+        </div>
+        {!confirming ? (
+          <button
+            type="button"
+            className="btn-base btn-outline shrink-0 text-xs text-destructive"
+            onClick={() => setConfirming(true)}
+          >
+            <Trash2 className="size-3.5" />
+            Delete Asset
+          </button>
+        ) : null}
+      </div>
+      {confirming ? (
+        <div className="mt-4 rounded-lg bg-destructive/10 p-3">
+          <p className="text-sm font-medium text-destructive">
+            Delete &ldquo;{asset.name}&rdquo; ({asset.id})? This can&rsquo;t be undone.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              disabled={deleting}
+              className="btn-base btn-danger text-xs disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={remove}
+            >
+              {deleting ? "Deleting..." : "Yes, Delete Asset"}
+            </button>
+            <button
+              type="button"
+              disabled={deleting}
+              className="btn-base btn-outline text-xs"
+              onClick={() => setConfirming(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <Alert tone="error">{error}</Alert>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -556,39 +774,67 @@ function ProvenanceTab({ asset }: { asset: Asset }) {
 function CertificateTab({
   asset,
   creator,
+  ownerEmail,
   userId,
+  onGoToOverview,
+  onEditDetails,
 }: {
   asset: Asset;
   creator: string;
+  ownerEmail: string;
   userId: string;
+  onGoToOverview: () => void;
+  onEditDetails: () => void;
 }) {
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(
+    null,
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
   const cert = getCertificate(asset.id, userId);
-  const certId = certIdFor(asset.id);
+  const certId = cert?.id ?? certIdFor(asset.id);
+  const blocker = certificateBlocker(asset);
+  const verifyUrl = verificationUrl(certId);
   const p = getPermissions(asset.id);
   const commercial = !!p.general["Commercial Production"];
   const derivative = !!p.general["Derivative Creation"];
   const aiTraining = !!p.ai["Public AI Training"] || !!p.ai["Private AI Fine-Tuning"];
   const label = (v: boolean) => (v ? "Permitted" : "Not Permitted");
+  const ownerName = cert?.ownerName || creator;
+  const ownerAccount = cert?.ownerEmail || maskEmail(ownerEmail) || "—";
 
   async function handleIssue() {
-    await issueCertificate(userId, asset.id);
-    setMessage(cert ? `Certificate ${certId} is up to date.` : `Certificate ${certId} generated & verified.`);
+    setMessage(null);
+    setBusy(true);
+    try {
+      await issueCertificate(userId, asset.id, { name: creator, email: ownerEmail });
+      setMessage({
+        tone: "success",
+        text: cert ? `Certificate ${certId} is up to date.` : `Certificate ${certId} generated & verified.`,
+      });
+    } catch (err: unknown) {
+      setMessage({ tone: "error", text: errorText(err, "Couldn't generate the certificate.") });
+    } finally {
+      setBusy(false);
+    }
   }
 
   function handleDownload() {
     if (!cert) {
-      setMessage("Please generate the certificate first.");
+      setMessage({ tone: "error", text: "Please generate the certificate first." });
       return;
     }
     downloadCertificate({
       certId,
       assetName: asset.name,
-      creator,
+      creator: ownerName,
+      ownerEmail: ownerAccount,
+      verifyUrl,
       assetType: asset.type,
       assetId: asset.id,
       registrationDate: asset.registeredOn,
-      issueDate: cert?.date,
+      issueDate: cert.date,
       exactHash: asset.dna?.exactHash,
       perceptualHash: asset.dna?.perceptualHash,
       aiPermissionToken: asset.dna?.aiPermissionToken,
@@ -599,7 +845,31 @@ function CertificateTab({
       fileName: asset.fileName ? `${asset.fileName} (${asset.fileSize})` : undefined,
       hashedFromFile: asset.hashedFromFile,
     });
-    setMessage(`Certificate ${certId} downloaded successfully.`);
+    setMessage({ tone: "success", text: `Certificate ${certId} downloaded successfully.` });
+  }
+
+  async function handleDelete() {
+    if (!cert) return;
+    setBusy(true);
+    try {
+      await deleteCertificate(userId, cert.id);
+      setConfirmDelete(false);
+      setMessage({ tone: "success", text: `Certificate ${certId} deleted.` });
+    } catch (err: unknown) {
+      setMessage({ tone: "error", text: errorText(err, "Couldn't delete the certificate.") });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copyLink() {
+    try {
+      await navigator.clipboard.writeText(verifyUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setMessage({ tone: "error", text: `Copy this link: ${verifyUrl}` });
+    }
   }
 
   return (
@@ -613,6 +883,22 @@ function CertificateTab({
           <h2 className="mt-1 text-xl font-bold">Provenance Certificate</h2>
         </div>
 
+        {blocker && !cert ? (
+          <div className="mt-5 flex flex-col gap-3 rounded-lg bg-secondary p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="font-medium text-secondary-foreground">{blocker}</span>
+            {asset.fileName ? (
+              <button
+                type="button"
+                className="btn-base btn-primary shrink-0 text-xs"
+                onClick={onGoToOverview}
+              >
+                <ImagePlus className="size-3.5" />
+                Add Preview Image
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         <AssetThumb
           src={asset.thumbnail}
           fileName={asset.fileName}
@@ -624,11 +910,18 @@ function CertificateTab({
         />
 
         <div className="mt-5">
-          <DetailRow label="Certificate ID" value={<span className="font-mono font-bold">{certId}</span>} />
+          <DetailRow
+            label="Certificate ID"
+            value={<span className="font-mono font-bold">{certId}</span>}
+          />
           <DetailRow label="Asset Name" value={asset.name} />
-          <DetailRow label="Creator" value={creator} />
+          <DetailRow label="Creator" value={ownerName} />
+          <DetailRow label="Owner Account" value={ownerAccount} />
           <DetailRow label="Asset Type" value={asset.type} />
-          <DetailRow label="Registration ID" value={<span className="font-mono">{asset.id}</span>} />
+          <DetailRow
+            label="Registration ID"
+            value={<span className="font-mono">{asset.id}</span>}
+          />
           <DetailRow label="Registration Date" value={asset.registeredOn} />
           <DetailRow
             label="Source File"
@@ -636,34 +929,116 @@ function CertificateTab({
           />
           <DetailRow
             label="Cryptographic SHA-256"
-            value={<span className="font-mono text-xs">{asset.dna?.exactHash ? `${asset.dna.exactHash.slice(0, 18)}...` : "Verified"}</span>}
+            value={
+              <span className="font-mono text-xs">
+                {asset.dna?.exactHash ? `${asset.dna.exactHash.slice(0, 18)}...` : "Verified"}
+              </span>
+            }
           />
           <DetailRow label="Provenance Status" value={<StatusBadge status="Registered" />} />
-          <DetailRow label="Commercial Production" value={<StatusBadge status={label(commercial)} />} />
-          <DetailRow label="Derivative Creation" value={<StatusBadge status={label(derivative)} />} />
-          <DetailRow label="AI Training Authorization" value={<StatusBadge status={label(aiTraining)} />} />
+          <DetailRow
+            label="Commercial Production"
+            value={<StatusBadge status={label(commercial)} />}
+          />
+          <DetailRow
+            label="Derivative Creation"
+            value={<StatusBadge status={label(derivative)} />}
+          />
+          <DetailRow
+            label="AI Training Authorization"
+            value={<StatusBadge status={label(aiTraining)} />}
+          />
           <DetailRow
             label="Certificate Status"
             value={<StatusBadge status={cert ? "Valid" : "Not Generated"} />}
           />
           {cert ? <DetailRow label="Issued On" value={cert.date} /> : null}
+          {cert ? (
+            <DetailRow
+              label="Public Verification Link"
+              value={
+                <div className="flex flex-wrap items-center gap-2">
+                  <a
+                    href={verifyUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="break-all font-mono text-xs text-accent hover:underline"
+                  >
+                    {verifyUrl}
+                  </a>
+                  <button type="button" className="btn-base btn-outline text-xs" onClick={copyLink}>
+                    <Copy className="size-3.5" />
+                    {copied ? "Copied" : "Copy"}
+                  </button>
+                </div>
+              }
+            />
+          ) : null}
         </div>
 
         {message ? (
           <div className="mt-4">
-            <Alert tone="success">{message}</Alert>
+            <Alert tone={message.tone}>{message.text}</Alert>
           </div>
         ) : null}
 
         <div className="mt-6 flex flex-wrap gap-2.5">
-          <button className="btn-base btn-primary" onClick={handleIssue}>
+          <button
+            className="btn-base btn-primary disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleIssue}
+            disabled={busy || Boolean(blocker)}
+          >
             <FileCheck2 className="size-4" />
             {cert ? "Update Certificate" : "Generate Certificate"}
           </button>
-          <button className="btn-base btn-outline" onClick={handleDownload}>
+          <button
+            className="btn-base btn-outline disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleDownload}
+            disabled={!cert}
+          >
             Download Official Certificate (.html)
           </button>
+          <button className="btn-base btn-outline" onClick={onEditDetails}>
+            <Pencil className="size-3.5" />
+            Edit Asset Details
+          </button>
+          {cert && !confirmDelete ? (
+            <button
+              className="btn-base btn-outline text-destructive"
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="size-3.5" />
+              Delete Certificate
+            </button>
+          ) : null}
         </div>
+
+        {cert && confirmDelete ? (
+          <div className="mt-4 rounded-lg bg-destructive/10 p-3">
+            <p className="text-sm font-medium text-destructive">
+              Delete certificate {certId}? Its verification link will stop working. You can
+              generate a new certificate later.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2.5">
+              <button
+                type="button"
+                disabled={busy}
+                className="btn-base btn-danger text-xs disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={handleDelete}
+              >
+                {busy ? "Deleting..." : "Yes, Delete Certificate"}
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                className="btn-base btn-outline text-xs"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : null}
       </Card>
     </div>
   );

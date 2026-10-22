@@ -183,6 +183,48 @@ export async function findUserByCredentials(
   return { ok: true, user: found };
 }
 
+/**
+ * Forgot password: set a new password for the account registered with this email.
+ */
+export async function resetPassword(
+  email: string,
+  newPassword: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const targetEmail = email.trim().toLowerCase();
+  let found = false;
+
+  // 1. Firestore "users" collection
+  if (isFirebaseConfigured && db) {
+    try {
+      const snap = await getDocs(query(collection(db, "users"), where("email", "==", targetEmail)));
+      for (const userDoc of snap.docs) {
+        await setDoc(userDoc.ref, { password: newPassword }, { merge: true });
+        found = true;
+      }
+    } catch (err) {
+      console.warn("Firestore resetPassword notice:", err);
+    }
+  }
+
+  // 2. Local cache / fallback repository
+  const users = readLocalUsers();
+  let localChanged = false;
+  const updatedUsers = users.map((u) => {
+    if (u.email !== targetEmail) return u;
+    localChanged = true;
+    return { ...u, password: newPassword };
+  });
+  if (localChanged) {
+    writeLocalUsers(updatedUsers);
+    found = true;
+  }
+
+  if (!found) {
+    return { ok: false, error: "No account found with this email address." };
+  }
+  return { ok: true };
+}
+
 export function getUserById(id: string): User | null {
   const session = getSession();
   if (session && session.id === id) return session;

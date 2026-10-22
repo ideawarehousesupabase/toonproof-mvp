@@ -90,6 +90,10 @@ function RegisterAsset() {
   }, []);
 
   async function handleSourceFile(f: File) {
+    if (f.size === 0) {
+      setError("That file is empty. Please choose the actual asset file.");
+      return;
+    }
     setSourceFile(f);
     setFile({
       name: f.name,
@@ -377,7 +381,8 @@ function RegisterAsset() {
                 {file ? "Click or drag to replace file" : "Click or drag file to select"}
               </span>
               <span className="text-xs text-muted-foreground">
-                Supported: Rig files, models, sprite sheets, MP4, JSON, PSD, ToonBoom, SVG.
+                Any asset file: images, videos, PSD, AI, Krita, Procreate, rigs, models, JSON,
+                ToonBoom. Files that can&rsquo;t be previewed will ask for a preview image.
               </span>
               <input type="file" className="hidden" onChange={pickFile} />
             </label>

@@ -81,6 +81,12 @@ function Login() {
           />
         </Field>
 
+        <div className="-mt-2 text-right">
+          <Link to="/forgot-password" className="text-xs font-semibold text-accent hover:underline">
+            Forgot password?
+          </Link>
+        </div>
+
         <button type="submit" disabled={loading} className="btn-base btn-primary w-full">
           {loading ? "Signing in..." : "Sign In"}
         </button>

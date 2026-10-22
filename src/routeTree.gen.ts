@@ -12,9 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CertificatesRouteImport } from './routes/certificates'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as VerifyRouteImport } from './routes/verify'
 import { Route as AssetsIndexRouteImport } from './routes/assets.index'
 import { Route as AssetsAssetIdRouteImport } from './routes/assets.$assetId'
 import { Route as AssetsNewRouteImport } from './routes/assets.new'
@@ -34,6 +36,11 @@ const DashboardRoute = DashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
+  id: '/forgot-password',
+  path: '/forgot-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -47,6 +54,11 @@ const ProfileRoute = ProfileRouteImport.update({
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerifyRoute = VerifyRouteImport.update({
+  id: '/verify',
+  path: '/verify',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AssetsIndexRoute = AssetsIndexRouteImport.update({
@@ -69,9 +81,11 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/certificates': typeof CertificatesRoute
   '/dashboard': typeof DashboardRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
+  '/verify': typeof VerifyRoute
   '/assets/$assetId': typeof AssetsAssetIdRoute
   '/assets/new': typeof AssetsNewRoute
   '/assets/': typeof AssetsIndexRoute
@@ -80,9 +94,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/certificates': typeof CertificatesRoute
   '/dashboard': typeof DashboardRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
+  '/verify': typeof VerifyRoute
   '/assets/$assetId': typeof AssetsAssetIdRoute
   '/assets/new': typeof AssetsNewRoute
   '/assets': typeof AssetsIndexRoute
@@ -92,9 +108,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/certificates': typeof CertificatesRoute
   '/dashboard': typeof DashboardRoute
+  '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/profile': typeof ProfileRoute
   '/signup': typeof SignupRoute
+  '/verify': typeof VerifyRoute
   '/assets/$assetId': typeof AssetsAssetIdRoute
   '/assets/new': typeof AssetsNewRoute
   '/assets/': typeof AssetsIndexRoute
@@ -105,9 +123,11 @@ export interface FileRouteTypes {
     | '/'
     | '/certificates'
     | '/dashboard'
+    | '/forgot-password'
     | '/login'
     | '/profile'
     | '/signup'
+    | '/verify'
     | '/assets/$assetId'
     | '/assets/new'
     | '/assets/'
@@ -116,9 +136,11 @@ export interface FileRouteTypes {
     | '/'
     | '/certificates'
     | '/dashboard'
+    | '/forgot-password'
     | '/login'
     | '/profile'
     | '/signup'
+    | '/verify'
     | '/assets/$assetId'
     | '/assets/new'
     | '/assets'
@@ -127,9 +149,11 @@ export interface FileRouteTypes {
     | '/'
     | '/certificates'
     | '/dashboard'
+    | '/forgot-password'
     | '/login'
     | '/profile'
     | '/signup'
+    | '/verify'
     | '/assets/$assetId'
     | '/assets/new'
     | '/assets/'
@@ -139,9 +163,11 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CertificatesRoute: typeof CertificatesRoute
   DashboardRoute: typeof DashboardRoute
+  ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   ProfileRoute: typeof ProfileRoute
   SignupRoute: typeof SignupRoute
+  VerifyRoute: typeof VerifyRoute
   AssetsAssetIdRoute: typeof AssetsAssetIdRoute
   AssetsNewRoute: typeof AssetsNewRoute
   AssetsIndexRoute: typeof AssetsIndexRoute
@@ -170,6 +196,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot-password': {
+      id: '/forgot-password'
+      path: '/forgot-password'
+      fullPath: '/forgot-password'
+      preLoaderRoute: typeof ForgotPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -189,6 +222,13 @@ declare module '@tanstack/react-router' {
       path: '/signup'
       fullPath: '/signup'
       preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verify': {
+      id: '/verify'
+      path: '/verify'
+      fullPath: '/verify'
+      preLoaderRoute: typeof VerifyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/assets/': {
@@ -219,9 +259,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CertificatesRoute: CertificatesRoute,
   DashboardRoute: DashboardRoute,
+  ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   ProfileRoute: ProfileRoute,
   SignupRoute: SignupRoute,
+  VerifyRoute: VerifyRoute,
   AssetsAssetIdRoute: AssetsAssetIdRoute,
   AssetsNewRoute: AssetsNewRoute,
   AssetsIndexRoute: AssetsIndexRoute,

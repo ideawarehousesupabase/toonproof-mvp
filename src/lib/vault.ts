@@ -262,6 +262,100 @@ export async function updateAssetPreview(userId: string, assetId: string, thumbn
   }
 }
 
+export type AssetInfoPatch = {
+  name: string;
+  type: string;
+  description: string;
+  collection: string;
+};
+
+/** Edit the descriptive details of an asset. File, fingerprints, ID and dates never change. */
+export async function updateAssetInfo(userId: string, assetId: string, patch: AssetInfoPatch) {
+  const store = readLocalVault();
+  const target = store.assets.find((a) => a.id === assetId && a.userId === userId);
+  if (!target) throw new Error("Asset not found in your vault.");
+
+  const next: AssetInfoPatch = {
+    name: patch.name.trim(),
+    type: patch.type.trim(),
+    description: patch.description.trim(),
+    collection: patch.collection.trim(),
+  };
+  if (!next.name) throw new Error("Asset name can't be empty.");
+  if (!next.type) throw new Error("Please choose an asset type.");
+
+  const labels: Record<keyof AssetInfoPatch, string> = {
+    name: "name",
+    type: "type",
+    description: "description",
+    collection: "project / collection",
+  };
+  const changed = (Object.keys(next) as Array<keyof AssetInfoPatch>).filter(
+    (k) => (target[k] ?? "") !== next[k],
+  );
+  if (changed.length === 0) return;
+
+  Object.assign(target, next);
+
+  const now = new Date();
+  const event: ProvenanceEvent = {
+    id: `evt_${Date.now()}`,
+    assetId,
+    userId,
+    date: now.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    timestamp: now.toISOString(),
+    event: `Asset details updated (${changed.map((k) => labels[k]).join(", ")})`,
+  };
+  store.events = [event, ...store.events];
+  writeLocalVault(store);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await setDoc(doc(db, "assets", assetId), next, { merge: true });
+      await setDoc(doc(db, "events", event.id), event);
+    } catch (err) {
+      console.warn("Firestore asset update notice:", err);
+    }
+  }
+}
+
+/** Permanently delete an asset together with its certificate, shares, permissions and history. */
+export async function deleteAsset(userId: string, assetId: string) {
+  const store = readLocalVault();
+  const target = store.assets.find((a) => a.id === assetId && a.userId === userId);
+  if (!target) throw new Error("Asset not found in your vault.");
+
+  const certIds = store.certificates.filter((c) => c.assetId === assetId).map((c) => c.id);
+  const shareIds = store.shares.filter((s) => s.assetId === assetId).map((s) => s.id);
+  const eventIds = store.events.filter((e) => e.assetId === assetId).map((e) => e.id);
+
+  store.assets = store.assets.filter((a) => a !== target);
+  store.certificates = store.certificates.filter((c) => c.assetId !== assetId);
+  store.shares = store.shares.filter((s) => s.assetId !== assetId);
+  store.events = store.events.filter((e) => e.assetId !== assetId);
+  delete store.permissions[assetId];
+  writeLocalVault(store);
+
+  if (isFirebaseConfigured && db) {
+    const firestore = db;
+    try {
+      await Promise.all([
+        deleteDoc(doc(firestore, "assets", assetId)),
+        deleteDoc(doc(firestore, "permissions", assetId)),
+        ...certIds.map((id) => deleteDoc(doc(firestore, "certificates", id))),
+        ...shareIds.map((id) => deleteDoc(doc(firestore, "shares", id))),
+        ...eventIds.map((id) => deleteDoc(doc(firestore, "events", id))),
+      ]);
+    } catch (err) {
+      console.warn("Firestore asset delete notice:", err);
+    }
+  }
+}
+
 // --------------------------------------------------------------------------
 // PERMISSIONS
 // --------------------------------------------------------------------------
@@ -498,13 +592,55 @@ export function getCertificate(assetId: string, userId?: string): Certificate | 
   );
 }
 
+export function maskEmail(email: string) {
+  const [local = "", domain = ""] = email.trim().toLowerCase().split("@");
+  if (!domain) return "";
+  const visible = local.slice(0, Math.min(2, Math.max(1, local.length - 1)));
+  return `${visible}***@${domain}`;
+}
+
+/** Why a certificate can't be issued for this asset yet, or undefined when it can. */
+export function certificateBlocker(asset: Asset | undefined): string | undefined {
+  if (!asset) return "Asset not found in your vault.";
+  if (!asset.fileName) {
+    return "This asset has no uploaded file. Register the asset with its file to generate a certificate.";
+  }
+  if (!asset.thumbnail) {
+    return "Add a preview image of this asset (Overview tab) before generating its certificate.";
+  }
+  return undefined;
+}
+
 export async function issueCertificate(
   userId: string,
-  assetId: string
+  assetId: string,
+  owner?: { name: string; email: string },
 ): Promise<Certificate> {
   const store = readLocalVault();
+  const asset = store.assets.find((a) => a.id === assetId && a.userId === userId);
+  const blocker = certificateBlocker(asset);
+  if (blocker || !asset) throw new Error(blocker);
+
+  const ownerFields = owner
+    ? { ownerName: owner.name.trim(), ownerEmail: maskEmail(owner.email) }
+    : {};
+
   const existing = store.certificates.find((c) => c.assetId === assetId);
-  if (existing) return existing;
+  if (existing) {
+    // Refresh owner details on certificates issued before they were recorded
+    if (owner && (!existing.ownerName || !existing.ownerEmail)) {
+      Object.assign(existing, ownerFields);
+      writeLocalVault(store);
+      if (isFirebaseConfigured && db) {
+        try {
+          await setDoc(doc(db, "certificates", existing.id), existing, { merge: true });
+        } catch (err) {
+          console.warn("Firestore certificate sync notice:", err);
+        }
+      }
+    }
+    return existing;
+  }
 
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-GB", {
@@ -513,9 +649,7 @@ export async function issueCertificate(
     year: "numeric",
   });
   const certId = certIdFor(assetId);
-
-  const asset = store.assets.find((a) => a.id === assetId);
-  const hashSig = asset?.dna?.exactHash || `SIG_${Date.now()}`;
+  const hashSig = asset.dna?.exactHash || `SIG_${Date.now()}`;
 
   const cert: Certificate = {
     id: certId,
@@ -525,6 +659,7 @@ export async function issueCertificate(
     timestamp: now.toISOString(),
     status: "Valid",
     hashSignature: hashSig,
+    ...ownerFields,
   };
 
   const event: ProvenanceEvent = {
@@ -551,6 +686,68 @@ export async function issueCertificate(
   }
 
   return cert;
+}
+
+export async function deleteCertificate(userId: string, certId: string) {
+  const store = readLocalVault();
+  const target = store.certificates.find((c) => c.id === certId && c.userId === userId);
+  if (!target) throw new Error("Certificate not found.");
+
+  const now = new Date();
+  const event: ProvenanceEvent = {
+    id: `evt_${Date.now()}`,
+    assetId: target.assetId,
+    userId,
+    date: now.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    }),
+    timestamp: now.toISOString(),
+    event: `Provenance certificate deleted (${certId})`,
+  };
+
+  store.certificates = store.certificates.filter((c) => c !== target);
+  store.events = [event, ...store.events];
+  writeLocalVault(store);
+
+  if (isFirebaseConfigured && db) {
+    try {
+      await deleteDoc(doc(db, "certificates", certId));
+      await setDoc(doc(db, "events", event.id), event);
+    } catch (err) {
+      console.warn("Firestore certificate delete notice:", err);
+    }
+  }
+}
+
+/**
+ * Public certificate lookup used by the verification page (no sign-in required).
+ */
+export async function lookupCertificate(
+  certId: string,
+): Promise<{ cert: Certificate; asset: Asset | undefined } | null> {
+  const id = certId.trim().toUpperCase();
+  if (!id) return null;
+
+  if (isFirebaseConfigured && db) {
+    try {
+      const certSnap = await getDoc(doc(db, "certificates", id));
+      if (certSnap.exists()) {
+        const cert = certSnap.data() as Certificate;
+        const assetSnap = await getDoc(doc(db, "assets", cert.assetId));
+        return { cert, asset: assetSnap.exists() ? (assetSnap.data() as Asset) : undefined };
+      }
+      // Not in Firestore — fall back to this browser's vault below
+    } catch (err) {
+      console.warn("Firestore certificate lookup notice:", err);
+    }
+  }
+
+  const store = readLocalVault();
+  const cert = store.certificates.find((c) => c.id === id);
+  if (!cert) return null;
+  return { cert, asset: store.assets.find((a) => a.id === cert.assetId) };
 }
 
 export function listCertificates(userId?: string): Array<Certificate & { asset: Asset }> {
